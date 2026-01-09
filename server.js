@@ -1,60 +1,61 @@
-const express = require("express");
-const axios = require("axios");
-const cors = require("cors");
+import express from "express";
+import fetch from "node-fetch";
 
 const app = express();
-app.use(cors());
 app.use(express.json());
 
-const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
-const TG_BOT_TOKEN = process.env.TG_BOT_TOKEN;
+const TELEGRAM_TOKEN = process.env.TG_BOT_TOKEN;
+const OPENAI_KEY = process.env.OPENAI_API_KEY;
 
-// ✅ Health check
-app.get("/", (req, res) => {
-  res.json({ status: "AI CORE LIVE (single file)" });
-});
-
-// ✅ Telegram Webhook (IMPORTANT)
-app.post("/", async (req, res) => {
+// Telegram webhook endpoint
+app.post("/webhook", async (req, res) => {
   try {
     const message = req.body.message;
-    if (!message || !message.text) return res.send("ok");
+    if (!message || !message.text) return res.sendStatus(200);
 
     const chatId = message.chat.id;
     const userText = message.text;
 
-    const ai = await axios.post(
-      "https://api.openai.com/v1/chat/completions",
-      {
-        model: "gpt-4o-mini",
-        messages: [{ role: "user", content: userText }],
+    // Call OpenAI
+    const aiResponse = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${OPENAI_KEY}`,
+        "Content-Type": "application/json"
       },
-      {
-        headers: {
-          Authorization: `Bearer ${OPENAI_API_KEY}`,
-          "Content-Type": "application/json",
-        },
-      }
-    );
+      body: JSON.stringify({
+        model: "gpt-4o-mini",
+        messages: [
+          { role: "system", content: "You are a helpful AI assistant." },
+          { role: "user", content: userText }
+        ]
+      })
+    });
 
-    const reply = ai.data.choices[0].message.content;
+    const aiData = await aiResponse.json();
+    const reply = aiData.choices?.[0]?.message?.content || "AI reply failed";
 
-    await axios.post(
-      `https://api.telegram.org/bot${TG_BOT_TOKEN}/sendMessage`,
-      {
+    // Send reply to Telegram
+    await fetch(`https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
         chat_id: chatId,
-        text: reply,
-      }
-    );
+        text: reply
+      })
+    });
 
-    res.send("ok");
+    res.sendStatus(200);
   } catch (err) {
     console.error(err);
-    res.send("ok");
+    res.sendStatus(500);
   }
 });
 
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-  console.log("Server running on", PORT);
+// Health check
+app.get("/", (req, res) => {
+  res.send("AI CORE LIVE");
 });
+
+const PORT = process.env.PORT || 10000;
+app.listen(PORT, () => console.log("Server running on", PORT));
